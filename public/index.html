@@ -297,22 +297,33 @@
     </style>
 </head>
 <body>
-    <!-- Login Page -->
+    <!-- QR Authentication Page -->
     <div id="loginPage" class="login-container">
         <div class="login-card">
             <h2>🤖 WhatsApp Manager</h2>
-            <form id="loginForm">
-                <div class="input-group">
-                    <label for="username">Username</label>
-                    <input type="text" id="username" name="username" required>
+            <p style="text-align: center; color: #666; margin-bottom: 20px;">
+                Scan QR code with WhatsApp to authenticate and access the dashboard
+            </p>
+            
+            <div id="qrAuthSection">
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <button id="generateQRBtn" class="btn" style="width: 100%;">📱 Generate QR Code</button>
                 </div>
-                <div class="input-group">
-                    <label for="password">Password</label>
-                    <input type="password" id="password" name="password" required>
+                
+                <div id="qrDisplay" class="hidden" style="text-align: center;">
+                    <div id="qrImageContainer" style="margin: 20px 0;">
+                        <p>⏳ Generating QR code...</p>
+                    </div>
+                    <p style="color: #666; font-size: 14px;">
+                        Open WhatsApp → Settings → Linked Devices → Link a Device<br>
+                        Scan the QR code above to authenticate
+                    </p>
+                    <div id="authStatus" style="margin-top: 15px; font-weight: bold;"></div>
                 </div>
-                <button type="submit" class="btn" style="width: 100%;">Login</button>
-            </form>
+            </div>
+            
             <div id="loginError" class="alert alert-error hidden"></div>
+            <div id="authSuccess" class="alert alert-success hidden"></div>
         </div>
     </div>
 
@@ -327,10 +338,10 @@
 
             <!-- Tab Navigation -->
             <div class="tab-container">
-                <button class="tab active" onclick="showTab('connection')">🔗 Connection</button>
-                <button class="tab" onclick="showTab('contacts')">👥 Contacts</button>
-                <button class="tab" onclick="showTab('groups')">👨‍👩‍👧‍👦 Groups</button>
-                <button class="tab" onclick="showTab('messaging')">💬 Messaging</button>
+                <button class="tab active" onclick="showTab('connection', this)">🔗 Connection</button>
+                <button class="tab" onclick="showTab('contacts', this)">👥 Contacts</button>
+                <button class="tab" onclick="showTab('groups', this)">👨‍👩‍👧‍👦 Groups</button>
+                <button class="tab" onclick="showTab('messaging', this)">💬 Messaging</button>
             </div>
 
             <!-- Connection Tab -->
@@ -458,11 +469,11 @@
             if (token) {
                 checkAuth();
             } else {
-                showLogin();
+                showQRAuth();
             }
         });
 
-        // Authentication functions
+        // QR Authentication functions
         async function checkAuth() {
             try {
                 const response = await fetch('/api/auth/me', {
@@ -470,47 +481,85 @@
                 });
                 
                 if (response.ok) {
+                    const userData = await response.json();
                     showDashboard();
                     initializeSocket();
                     loadInitialData();
                 } else {
-                    showLogin();
+                    showQRAuth();
                 }
             } catch (error) {
                 console.error('Auth check failed:', error);
-                showLogin();
+                showQRAuth();
             }
         }
 
-        async function login(event) {
-            event.preventDefault();
-            const formData = new FormData(event.target);
-            const credentials = {
-                username: formData.get('username'),
-                password: formData.get('password')
-            };
-
+        async function generateQRCode() {
             try {
-                const response = await fetch('/api/auth/login', {
+                document.getElementById('generateQRBtn').disabled = true;
+                document.getElementById('generateQRBtn').textContent = '⏳ Generating...';
+                
+                // Initiate WhatsApp connection which should generate QR
+                const response = await fetch('/api/wa/connect', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(credentials)
+                    headers: { 'Content-Type': 'application/json' }
                 });
-
-                const data = await response.json();
                 
                 if (response.ok) {
-                    token = data.token;
-                    localStorage.setItem('authToken', token);
+                    document.getElementById('qrDisplay').classList.remove('hidden');
+                    document.getElementById('authStatus').textContent = '⏳ Waiting for QR code...';
+                    startQRPolling();
+                } else {
+                    throw new Error('Failed to initiate connection');
+                }
+            } catch (error) {
+                console.error('QR generation failed:', error);
+                showError('loginError', 'Failed to generate QR code');
+                document.getElementById('generateQRBtn').disabled = false;
+                document.getElementById('generateQRBtn').textContent = '📱 Generate QR Code';
+            }
+        }
+
+        function startQRPolling() {
+            const pollInterval = setInterval(async () => {
+                try {
+                    const response = await fetch('/api/auth/qr-status');
+                    const data = await response.json();
+                    
+                    if (data.authenticated && data.user) {
+                        clearInterval(pollInterval);
+                        handleQRAuthentication(data.user);
+                    }
+                } catch (error) {
+                    console.error('QR polling error:', error);
+                }
+            }, 3000);
+            
+            // Stop polling after 3 minutes
+            setTimeout(() => {
+                clearInterval(pollInterval);
+                document.getElementById('authStatus').textContent = '⏰ QR code expired - click "Generate QR Code" to try again';
+                document.getElementById('generateQRBtn').disabled = false;
+                document.getElementById('generateQRBtn').textContent = '📱 Generate QR Code';
+            }, 180000);
+        }
+
+        async function handleQRAuthentication(user) {
+            try {
+                document.getElementById('authStatus').textContent = '✅ Authentication successful!';
+                document.getElementById('authSuccess').textContent = `Welcome! You've been granted owner access as ${user.phoneNumber}`;
+                document.getElementById('authSuccess').classList.remove('hidden');
+                
+                setTimeout(() => {
+                    // The token should already be set by the QR verification process
                     showDashboard();
                     initializeSocket();
                     loadInitialData();
-                } else {
-                    showError('loginError', data.error || 'Login failed');
-                }
+                }, 2000);
+                
             } catch (error) {
-                console.error('Login error:', error);
-                showError('loginError', 'Network error occurred');
+                console.error('Auth handling failed:', error);
+                showError('loginError', 'Authentication processing failed');
             }
         }
 
@@ -520,13 +569,25 @@
             if (socket) {
                 socket.disconnect();
             }
-            showLogin();
+            
+            // Clear authentication on server
+            fetch('/api/auth/logout', { method: 'POST' })
+                .catch(console.error);
+                
+            showQRAuth();
         }
 
         // UI functions
-        function showLogin() {
+        function showQRAuth() {
             document.getElementById('loginPage').classList.remove('hidden');
             document.getElementById('dashboard').classList.add('hidden');
+            
+            // Reset QR auth state
+            document.getElementById('qrDisplay').classList.add('hidden');
+            document.getElementById('generateQRBtn').disabled = false;
+            document.getElementById('generateQRBtn').textContent = '📱 Generate QR Code';
+            document.getElementById('authSuccess').classList.add('hidden');
+            document.getElementById('loginError').classList.add('hidden');
         }
 
         function showDashboard() {
@@ -541,7 +602,7 @@
             setTimeout(() => element.classList.add('hidden'), 5000);
         }
 
-        function showTab(tabName) {
+        function showTab(tabName, element) {
             // Hide all tabs
             const tabs = document.querySelectorAll('.tab-content');
             tabs.forEach(tab => tab.classList.remove('active'));
@@ -551,7 +612,7 @@
             
             // Show selected tab
             document.getElementById(tabName + 'Tab').classList.add('active');
-            event.target.classList.add('active');
+            element.classList.add('active');
         }
 
         // Socket.IO functions
@@ -572,6 +633,46 @@
             
             socket.on('contacts_update', () => {
                 refreshContacts();
+            });
+            
+            socket.on('import_progress', (data) => {
+                const status = document.getElementById('importStatus');
+                if (status) {
+                    status.textContent = data.message;
+                }
+            });
+            
+            socket.on('message_sent', (data) => {
+                if (data.success) {
+                    alert(`✅ Message sent to ${data.recipients} recipient(s)!`);
+                } else {
+                    alert(`❌ Message failed: ${data.message}`);
+                }
+            });
+            
+            socket.on('qr_auth_ready', (data) => {
+                console.log('QR authentication ready:', data.authCode);
+                document.getElementById('authStatus').textContent = '📱 QR Code ready - scan with WhatsApp!';
+            });
+            
+            socket.on('user_authenticated', (data) => {
+                console.log('🎉 User authenticated automatically:', data);
+                if (data.token) {
+                    token = data.token;
+                    localStorage.setItem('authToken', token);
+                    
+                    // Show success message
+                    document.getElementById('authStatus').textContent = '✅ QR Scan Successful!';
+                    document.getElementById('authSuccess').textContent = data.message;
+                    document.getElementById('authSuccess').classList.remove('hidden');
+                    
+                    // Redirect to dashboard after brief delay
+                    setTimeout(() => {
+                        showDashboard();
+                        initializeSocket();
+                        loadInitialData();
+                    }, 3000);
+                }
             });
         }
 
@@ -801,8 +902,23 @@
             
             if (confirm(`Send message to ${targetGroup ? 'group' : selectedContacts.length + ' contacts'}?`)) {
                 try {
-                    // Implement messaging API call here
-                    alert('Message sent successfully!');
+                    const response = await apiCall('/api/messages/send', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            message: message,
+                            contacts: selectedContacts,
+                            groupJid: targetGroup
+                        })
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        document.getElementById('messageText').value = '';
+                        document.getElementById('targetGroup').value = '';
+                        // Uncheck all contacts
+                        document.querySelectorAll('.contact-checkbox:checked').forEach(cb => cb.checked = false);
+                    }
                 } catch (error) {
                     console.error('Message send failed:', error);
                     alert('Failed to send message');
@@ -818,7 +934,7 @@
         });
 
         // Event listeners
-        document.getElementById('loginForm').addEventListener('submit', login);
+        document.getElementById('generateQRBtn').addEventListener('click', generateQRCode);
         document.getElementById('logoutBtn').addEventListener('click', logout);
         document.getElementById('connectBtn').addEventListener('click', connectWhatsApp);
         document.getElementById('disconnectBtn').addEventListener('click', disconnectWhatsApp);
