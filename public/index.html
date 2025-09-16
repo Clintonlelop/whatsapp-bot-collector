@@ -306,20 +306,16 @@
             </p>
             
             <div id="qrAuthSection">
-                <div style="text-align: center; margin-bottom: 20px;">
-                    <button id="generateQRBtn" class="btn" style="width: 100%;">📱 Generate QR Code</button>
-                </div>
-                
-                <div id="qrDisplay" class="hidden" style="text-align: center;">
+                <div id="qrDisplay" style="text-align: center;">
                     <div id="qrImageContainer" style="margin: 20px 0;">
-                        <img id="qrCodeImage" style="max-width: 256px; border: 2px solid #ddd; border-radius: 8px;" alt="WhatsApp QR Code">
-                        <p id="qrLoadingText">⏳ Generating QR code...</p>
+                        <img id="qrCodeImage" style="max-width: 256px; border: 2px solid #ddd; border-radius: 8px; display: none;" alt="WhatsApp QR Code">
+                        <p id="qrLoadingText">⏳ Loading WhatsApp QR code...</p>
                     </div>
                     <p style="color: #666; font-size: 14px;">
                         Open WhatsApp → Settings → Linked Devices → Link a Device<br>
-                        Scan the QR code above to authenticate
+                        Scan the QR code above to authenticate and access the dashboard
                     </p>
-                    <div id="authStatus" style="margin-top: 15px; font-weight: bold;"></div>
+                    <div id="authStatus" style="margin-top: 15px; font-weight: bold;">🔄 Initializing...</div>
                 </div>
             </div>
             
@@ -471,6 +467,8 @@
                 checkAuth();
             } else {
                 showQRAuth();
+                // Automatically initiate connection and show QR
+                autoInitializeQR();
             }
         });
 
@@ -495,10 +493,9 @@
             }
         }
 
-        async function generateQRCode() {
+        async function autoInitializeQR() {
             try {
-                document.getElementById('generateQRBtn').disabled = true;
-                document.getElementById('generateQRBtn').textContent = '⏳ Generating...';
+                document.getElementById('authStatus').textContent = '🔄 Initializing WhatsApp connection...';
                 
                 // Initiate WhatsApp connection which should generate QR
                 const response = await fetch('/api/wa/connect', {
@@ -507,7 +504,6 @@
                 });
                 
                 if (response.ok) {
-                    document.getElementById('qrDisplay').classList.remove('hidden');
                     document.getElementById('authStatus').textContent = '⏳ Loading QR code...';
                     
                     // Fetch and display QR code
@@ -517,34 +513,55 @@
                     throw new Error('Failed to initiate connection');
                 }
             } catch (error) {
-                console.error('QR generation failed:', error);
-                showError('loginError', 'Failed to generate QR code');
-                document.getElementById('generateQRBtn').disabled = false;
-                document.getElementById('generateQRBtn').textContent = '📱 Generate QR Code';
+                console.error('QR initialization failed:', error);
+                document.getElementById('authStatus').textContent = '❌ Failed to initialize - refresh page to try again';
+                showError('loginError', 'Failed to initialize WhatsApp connection');
             }
         }
 
         async function fetchAndDisplayQR() {
-            try {
-                const response = await fetch('/api/wa/qr');
-                const data = await response.json();
-                
-                if (data.success && data.qrCode) {
-                    const qrImage = document.getElementById('qrCodeImage');
-                    const loadingText = document.getElementById('qrLoadingText');
+            let attempts = 0;
+            const maxAttempts = 10;
+            
+            const tryFetchQR = async () => {
+                try {
+                    attempts++;
+                    const response = await fetch('/api/wa/qr');
+                    const data = await response.json();
                     
-                    qrImage.src = data.qrCode;
-                    qrImage.style.display = 'block';
-                    loadingText.style.display = 'none';
-                    
-                    document.getElementById('authStatus').textContent = '📱 QR Code ready - scan with WhatsApp!';
-                } else {
-                    throw new Error('No QR code received');
+                    if (data.success && data.qrCode) {
+                        const qrImage = document.getElementById('qrCodeImage');
+                        const loadingText = document.getElementById('qrLoadingText');
+                        
+                        qrImage.src = data.qrCode;
+                        qrImage.style.display = 'block';
+                        loadingText.style.display = 'none';
+                        
+                        document.getElementById('authStatus').textContent = `📱 Real WhatsApp QR Code - Scan Now!`;
+                        console.log('✅ Real QR code loaded:', data.message);
+                        return true;
+                    } else if (attempts < maxAttempts) {
+                        // QR not ready yet, retry
+                        document.getElementById('authStatus').textContent = `⏳ QR generating... (${attempts}/${maxAttempts})`;
+                        setTimeout(tryFetchQR, 2000);
+                        return false;
+                    } else {
+                        throw new Error('QR code generation timeout');
+                    }
+                } catch (error) {
+                    if (attempts < maxAttempts) {
+                        document.getElementById('authStatus').textContent = `⏳ Waiting for QR... (${attempts}/${maxAttempts})`;
+                        setTimeout(tryFetchQR, 2000);
+                        return false;
+                    } else {
+                        console.error('QR fetch failed:', error);
+                        document.getElementById('authStatus').textContent = '❌ Failed to load QR code';
+                        return false;
+                    }
                 }
-            } catch (error) {
-                console.error('QR fetch failed:', error);
-                document.getElementById('authStatus').textContent = '❌ Failed to load QR code';
-            }
+            };
+            
+            tryFetchQR();
         }
 
         function startQRPolling() {
@@ -565,9 +582,7 @@
             // Stop polling after 3 minutes
             setTimeout(() => {
                 clearInterval(pollInterval);
-                document.getElementById('authStatus').textContent = '⏰ QR code expired - click "Generate QR Code" to try again';
-                document.getElementById('generateQRBtn').disabled = false;
-                document.getElementById('generateQRBtn').textContent = '📱 Generate QR Code';
+                document.getElementById('authStatus').textContent = '⏰ QR code expired - refresh page to try again';
             }, 180000);
         }
 
@@ -609,10 +624,7 @@
             document.getElementById('loginPage').classList.remove('hidden');
             document.getElementById('dashboard').classList.add('hidden');
             
-            // Reset QR auth state
-            document.getElementById('qrDisplay').classList.add('hidden');
-            document.getElementById('generateQRBtn').disabled = false;
-            document.getElementById('generateQRBtn').textContent = '📱 Generate QR Code';
+            // Reset QR auth state  
             document.getElementById('authSuccess').classList.add('hidden');
             document.getElementById('loginError').classList.add('hidden');
             
@@ -625,7 +637,7 @@
             }
             if (loadingText) {
                 loadingText.style.display = 'block';
-                loadingText.textContent = '⏳ Generating QR code...';
+                loadingText.textContent = '⏳ Loading WhatsApp QR code...';
             }
         }
 
@@ -972,8 +984,7 @@
             refreshContacts();
         });
 
-        // Event listeners
-        document.getElementById('generateQRBtn').addEventListener('click', generateQRCode);
+        // Event listeners  
         document.getElementById('logoutBtn').addEventListener('click', logout);
         document.getElementById('connectBtn').addEventListener('click', connectWhatsApp);
         document.getElementById('disconnectBtn').addEventListener('click', disconnectWhatsApp);
