@@ -238,20 +238,26 @@ class WhatsAppService {
     }
 
     checkBotStatus() {
-        // Simple status check - in production this would be more sophisticated
+        // Check WhatsApp connection status
         try {
-            const contacts = contactStorage ? contactStorage.getAll() : [];
-            if (contacts.length > 0 && !isConnected) {
-                isConnected = true;
-                io.emit('connection_update', { status: 'connected' });
-                console.log('📱 Bot connection detected via contact presence');
+            const fs = require('fs');
+            
+            // Check if we have credentials (indicates connection)
+            if (fs.existsSync('./auth_info_baileys/creds.json')) {
+                if (!isConnected) {
+                    isConnected = true;
+                    io.emit('connection_update', { status: 'connected' });
+                    console.log('📱 WhatsApp connection established');
+                }
+            } else {
+                if (isConnected) {
+                    isConnected = false;
+                    io.emit('connection_update', { status: 'disconnected' });
+                    console.log('📵 WhatsApp connection lost');
+                }
             }
         } catch (error) {
-            if (isConnected) {
-                isConnected = false;
-                io.emit('connection_update', { status: 'disconnected' });
-                console.log('📵 Bot connection lost');
-            }
+            console.error('Status check error:', error);
         }
     }
 
@@ -303,13 +309,22 @@ class WhatsAppService {
     }
 
     getStatus() {
-        const contacts = contactStorage ? contactStorage.getAll() : [];
-        return {
-            connected: isConnected || contacts.length > 0,
-            qr: currentQR,
-            initialized: this.isInitialized,
-            contactCount: contacts.length
-        };
+        try {
+            const contacts = contactStorage && contactStorage.getAll ? contactStorage.getAll() : [];
+            return {
+                connected: isConnected || contacts.length > 0,
+                qr: currentQR,
+                initialized: this.isInitialized,
+                contactCount: contacts.length
+            };
+        } catch (error) {
+            return {
+                connected: isConnected,
+                qr: currentQR,
+                initialized: this.isInitialized,
+                contactCount: 0
+            };
+        }
     }
 
     getContacts() {
