@@ -312,7 +312,8 @@
                 
                 <div id="qrDisplay" class="hidden" style="text-align: center;">
                     <div id="qrImageContainer" style="margin: 20px 0;">
-                        <p>⏳ Generating QR code...</p>
+                        <img id="qrCodeImage" style="max-width: 256px; border: 2px solid #ddd; border-radius: 8px;" alt="WhatsApp QR Code">
+                        <p id="qrLoadingText">⏳ Generating QR code...</p>
                     </div>
                     <p style="color: #666; font-size: 14px;">
                         Open WhatsApp → Settings → Linked Devices → Link a Device<br>
@@ -507,7 +508,10 @@
                 
                 if (response.ok) {
                     document.getElementById('qrDisplay').classList.remove('hidden');
-                    document.getElementById('authStatus').textContent = '⏳ Waiting for QR code...';
+                    document.getElementById('authStatus').textContent = '⏳ Loading QR code...';
+                    
+                    // Fetch and display QR code
+                    await fetchAndDisplayQR();
                     startQRPolling();
                 } else {
                     throw new Error('Failed to initiate connection');
@@ -517,6 +521,29 @@
                 showError('loginError', 'Failed to generate QR code');
                 document.getElementById('generateQRBtn').disabled = false;
                 document.getElementById('generateQRBtn').textContent = '📱 Generate QR Code';
+            }
+        }
+
+        async function fetchAndDisplayQR() {
+            try {
+                const response = await fetch('/api/wa/qr');
+                const data = await response.json();
+                
+                if (data.success && data.qrCode) {
+                    const qrImage = document.getElementById('qrCodeImage');
+                    const loadingText = document.getElementById('qrLoadingText');
+                    
+                    qrImage.src = data.qrCode;
+                    qrImage.style.display = 'block';
+                    loadingText.style.display = 'none';
+                    
+                    document.getElementById('authStatus').textContent = '📱 QR Code ready - scan with WhatsApp!';
+                } else {
+                    throw new Error('No QR code received');
+                }
+            } catch (error) {
+                console.error('QR fetch failed:', error);
+                document.getElementById('authStatus').textContent = '❌ Failed to load QR code';
             }
         }
 
@@ -588,6 +615,18 @@
             document.getElementById('generateQRBtn').textContent = '📱 Generate QR Code';
             document.getElementById('authSuccess').classList.add('hidden');
             document.getElementById('loginError').classList.add('hidden');
+            
+            // Reset QR display elements
+            const qrImage = document.getElementById('qrCodeImage');
+            const loadingText = document.getElementById('qrLoadingText');
+            if (qrImage) {
+                qrImage.style.display = 'none';
+                qrImage.src = '';
+            }
+            if (loadingText) {
+                loadingText.style.display = 'block';
+                loadingText.textContent = '⏳ Generating QR code...';
+            }
         }
 
         function showDashboard() {

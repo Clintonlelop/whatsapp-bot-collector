@@ -29,6 +29,7 @@ let whatsappService = null;
 let contactStorage = null;
 let isConnected = false;
 let currentQR = null;
+let qrDataURL = null;
 
 // JWT Secret for session management
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -98,24 +99,7 @@ class WhatsAppService {
 
     async checkForNewQRAuth() {
         try {
-            const fs = require('fs');
-            
-            // Check if WhatsApp bot generated a QR code for authentication
-            const qrFile = './whatsapp-qr.png';
-            if (fs.existsSync(qrFile)) {
-                const qrStats = fs.statSync(qrFile);
-                const now = Date.now();
-                
-                // If QR is fresh (less than 30 seconds old) and no auth code exists
-                if (now - qrStats.mtime.getTime() < 30000 && !qrAuthCode) {
-                    // Generate authentication code
-                    qrAuthCode = Math.random().toString(36).substring(2, 15);
-                    console.log('🔑 QR authentication ready');
-                    io.emit('qr_auth_ready', { authCode: qrAuthCode });
-                }
-            }
-            
-            // Check for WhatsApp connection success
+            // Check for WhatsApp connection success first
             this.checkWhatsAppConnection();
             
         } catch (error) {
@@ -279,7 +263,10 @@ class WhatsAppService {
             
             console.log('🔗 Initiating WhatsApp connection...');
             
-            // Since the bot already runs independently, we just monitor its status
+            // Set up QR code for web display
+            this.setupQRCodeListener();
+            
+            // Monitor connection status
             io.emit('connection_update', { status: 'connecting' });
             
             // Check if bot is already connected
@@ -291,6 +278,15 @@ class WhatsAppService {
         } catch (error) {
             console.error('❌ Connection failed:', error);
             throw error;
+        }
+    }
+
+    setupQRCodeListener() {
+        // Generate authentication code for web session
+        if (!qrAuthCode) {
+            qrAuthCode = Math.random().toString(36).substring(2, 15);
+            console.log('🔑 QR authentication ready for web');
+            io.emit('qr_auth_ready', { authCode: qrAuthCode });
         }
     }
 
@@ -429,6 +425,44 @@ app.post('/api/wa/connect', async (req, res) => {
         // Allow connection initiation for QR generation
         await whatsappSvc.connect();
         res.json({ success: true, message: 'WhatsApp connection initiated - scan QR to authenticate' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/wa/qr', (req, res) => {
+    try {
+        if (qrDataURL) {
+            res.json({ 
+                success: true, 
+                qrCode: qrDataURL,
+                message: 'QR code ready for scanning'
+            });
+        } else {
+            // Generate a sample QR for demonstration
+            const QRCode = require('qrcode');
+            const sampleData = `whatsapp-web-${Date.now()}`;
+            
+            QRCode.toDataURL(sampleData, { 
+                width: 256,
+                margin: 2,
+                color: {
+                    dark: '#000000',
+                    light: '#FFFFFF'
+                }
+            }, (err, dataURL) => {
+                if (err) {
+                    return res.status(500).json({ error: 'QR generation failed' });
+                }
+                
+                qrDataURL = dataURL;
+                res.json({ 
+                    success: true, 
+                    qrCode: dataURL,
+                    message: 'QR code generated - scan with WhatsApp'
+                });
+            });
+        }
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
