@@ -9,6 +9,7 @@ class ContactStorage {
         this.dataDir = path.join(__dirname, '../../data');
         this.jsonPath = path.join(this.dataDir, 'contacts.json');
         this.csvPath = path.join(this.dataDir, 'contacts.csv');
+        this.vcfPath = path.join(this.dataDir, 'contacts.vcf');
         
         // Ensure data directory exists
         fs.ensureDirSync(this.dataDir);
@@ -34,8 +35,9 @@ class ContactStorage {
             // Save to JSON
             await fs.writeJson(this.jsonPath, this.contacts, { spaces: 2 });
             
-            // Export to CSV
+            // Export to CSV and VCF
             await this.exportToCsv();
+            await this.exportToVcf();
             
             logger.info(`Saved ${this.contacts.length} contacts to storage`);
         } catch (error) {
@@ -51,8 +53,7 @@ class ContactStorage {
                     { id: 'number', title: 'Phone Number' },
                     { id: 'name', title: 'Contact Name' },
                     { id: 'addedDate', title: 'Date Added' },
-                    { id: 'source', title: 'Source' },
-                    { id: 'groupId', title: 'Group ID' }
+                    { id: 'source', title: 'Source' }
                 ]
             });
 
@@ -60,6 +61,27 @@ class ContactStorage {
             logger.info('Contacts exported to CSV successfully');
         } catch (error) {
             logger.error('Failed to export contacts to CSV:', error);
+        }
+    }
+
+    async exportToVcf() {
+        try {
+            let vcfContent = '';
+            
+            this.contacts.forEach(contact => {
+                // Simple VCF format with only name and number
+                const contactName = contact.name || contact.number;
+                vcfContent += `BEGIN:VCARD\n`;
+                vcfContent += `VERSION:3.0\n`;
+                vcfContent += `FN:${contactName}\n`;
+                vcfContent += `TEL:${contact.number}\n`;
+                vcfContent += `END:VCARD\n\n`;
+            });
+
+            await fs.writeFile(this.vcfPath, vcfContent, 'utf8');
+            logger.info('Contacts exported to VCF successfully');
+        } catch (error) {
+            logger.error('Failed to export contacts to VCF:', error);
         }
     }
 
@@ -126,6 +148,18 @@ class ContactStorage {
             contact.name.toLowerCase().includes(lowercaseQuery) ||
             contact.number.includes(query)
         );
+    }
+    
+    async clearAll() {
+        try {
+            this.contacts = [];
+            await this.save();
+            logger.info('All contacts cleared successfully');
+            return true;
+        } catch (error) {
+            logger.error('Failed to clear contacts:', error);
+            return false;
+        }
     }
 }
 

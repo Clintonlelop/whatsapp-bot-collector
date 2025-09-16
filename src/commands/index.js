@@ -1,9 +1,10 @@
 const logger = require('../utils/logger');
 
 class Commands {
-    constructor(contacts, status) {
+    constructor(contacts, status, botInstance) {
         this.contacts = contacts;
         this.status = status;
+        this.bot = botInstance;
     }
 
     getMenu() {
@@ -98,37 +99,69 @@ class Commands {
             let existingCount = 0;
 
             for (const participant of participants) {
-                // Extract actual phone number from WhatsApp ID
-                const phoneNumber = await this.extractPhoneNumber(sock, participant.id);
+                // Extract actual phone number using new method (pass full participant object)
+                const phoneNumber = await this.extractPhoneNumber(sock, participant);
                 
                 if (phoneNumber && !this.contacts.exists(phoneNumber)) {
-                    // Get contact name from multiple sources
-                    const cachedName = await this.resolveName(sock, participant.id);
+                    // Get real contact name using multiple detection methods
+                    let contactName = null;
                     
-                    // Create better fallback names
-                    let contactName;
-                    if (cachedName) {
-                        contactName = cachedName;
-                    } else {
-                        // Extract clean number for better naming
+                    // 1. Check participant object directly for any available name fields
+                    if (participant.notify && participant.notify.trim()) {
+                        contactName = participant.notify.trim();
+                        logger.info(`🎯 Found notify name: ${contactName} for ${participant.id}`);
+                    } else if (participant.verifiedName && participant.verifiedName.trim()) {
+                        contactName = participant.verifiedName.trim();
+                        logger.info(`🎯 Found verified name: ${contactName} for ${participant.id}`);
+                    } else if (participant.name && participant.name.trim()) {
+                        contactName = participant.name.trim();
+                        logger.info(`🎯 Found participant name: ${contactName} for ${participant.id}`);
+                    }
+                    
+                    // 2. Try bot's enhanced name store
+                    if (!contactName && this.bot && this.bot.getDisplayName) {
+                        contactName = this.bot.getDisplayName(participant.id);
+                        // If we got a phone number back, it means no real name was found
+                        if (contactName === participant.id.split('@')[0]) {
+                            contactName = null;
+                        } else if (contactName) {
+                            logger.info(`🎯 Found stored name: ${contactName} for ${participant.id}`);
+                        }
+                    }
+                    
+                    // 3. Try traditional cached name resolution
+                    if (!contactName) {
+                        contactName = await this.resolveName(sock, participant.id);
+                        if (contactName) {
+                            logger.info(`🎯 Found cached name: ${contactName} for ${participant.id}`);
+                        }
+                    }
+                    
+                    // Enhanced fallback with better patterns
+                    if (!contactName) {
                         const cleanNumber = phoneNumber.replace('+', '');
-                        // Use country-specific naming pattern
                         if (cleanNumber.startsWith('234')) {
                             contactName = `Nigerian_${cleanNumber.slice(-4)}`;
                         } else if (cleanNumber.startsWith('1')) {
                             contactName = `US_${cleanNumber.slice(-4)}`;
                         } else if (cleanNumber.startsWith('44')) {
                             contactName = `UK_${cleanNumber.slice(-4)}`;
+                        } else if (cleanNumber.startsWith('91')) {
+                            contactName = `Indian_${cleanNumber.slice(-4)}`;
+                        } else if (cleanNumber.startsWith('27')) {
+                            contactName = `SA_${cleanNumber.slice(-4)}`;
                         } else {
                             contactName = `Member_${cleanNumber.slice(-4)}`;
                         }
                     }
                     
+                    logger.info(`🏷️ Contact name resolved: ${contactName} for ${phoneNumber} (${participant.id})`);
+                
+                    
+                    // Simplified contact saving - just name and number
                     await this.contacts.addContact({
                         number: phoneNumber,
-                        name: contactName,
-                        addedDate: new Date().toISOString(),
-                        source: `group_${groupMetadata.subject}`
+                        name: contactName
                     });
                     
                     addedCount++;
@@ -154,35 +187,61 @@ class Commands {
         }
     }
 
-    async extractPhoneNumber(sock, participantId) {
+    async extractPhoneNumber(sock, participant) {
         try {
-            // Handle standard WhatsApp format
-            if (participantId.includes('@s.whatsapp.net')) {
-                const number = participantId.split('@')[0];
-                // Only accept numbers that look like real phone numbers (7-15 digits, not LID)
-                if (this.isValidPhoneNumber(number)) {
-                    return this.formatPhoneNumber(number);
+            // Handle participant object directly (Baileys v7.x.x format)
+            if (typeof participant === 'object' && participant.id) {
+                const participantId = participant.id;
+                
+                // If participant has phoneNumber field (when id is LID), use it
+                if (participant.phoneNumber) {
+                    const cleanPhone = participant.phoneNumber.replace('@s.whatsapp.net', '');
+                    logger.info(`✅ Real phone found via participant.phoneNumber: ${cleanPhone} (LID: ${participantId})`);
+                    return this.formatPhoneNumber(cleanPhone);
                 }
-                return null;
-            } 
-            
-            // Skip LID format entirely - these are privacy identifiers, not phone numbers
-            else if (participantId.includes('@lid')) {
-                logger.debug('Skipping LID identifier (privacy-focused):', participantId);
-                return null;
-            } 
-            
-            // Fallback - try to extract number
-            else {
-                const number = participantId.split('@')[0];
-                // Only return if it looks like a real phone number
-                if (this.isValidPhoneNumber(number)) {
-                    return this.formatPhoneNumber(number);
+                
+                // If participant has lid field (when id is phone), use the id
+                if (participant.lid && participantId.includes('@s.whatsapp.net')) {
+                    const cleanPhone = participantId.split('@')[0];
+                    logger.info(`📱 Standard phone from participant.id: ${cleanPhone}`);
+                    return this.formatPhoneNumber(cleanPhone);
                 }
+                
+                // Try LID mapping store (Baileys built-in conversion)
+                if (participantId.includes('@lid')) {
+                    try {
+                        const lidStore = sock.signalRepository.getLIDMappingStore();
+                        const realPhone = await lidStore.getPNForLID(participantId.split('@')[0]);
+                        if (realPhone) {
+                            logger.info(`🎯 LID converted via mapping store: ${realPhone} (LID: ${participantId})`);
+                            return this.formatPhoneNumber(realPhone);
+                        }
+                    } catch (lidError) {
+                        logger.debug('LID mapping store failed:', lidError.message);
+                    }
+                }
+                
+                logger.warn(`❌ No real phone number found for: ${participantId}`);
                 return null;
             }
+            
+            // Fallback for old format (participantId string)
+            else if (typeof participant === 'string') {
+                if (participant.includes('@s.whatsapp.net')) {
+                    const number = participant.split('@')[0];
+                    logger.info(`📱 Fallback standard number: ${number}`);
+                    return this.formatPhoneNumber(number);
+                }
+                
+                logger.warn(`❌ Cannot convert LID string without participant object: ${participant}`);
+                return null;
+            }
+            
+            logger.warn(`❌ Invalid participant format:`, participant);
+            return null;
+            
         } catch (error) {
-            logger.error('Failed to extract phone number from:', participantId, error);
+            logger.error('Failed to extract phone number from participant:', error);
             return null;
         }
     }
@@ -191,17 +250,12 @@ class Commands {
         // Remove any non-digits
         const cleaned = number.replace(/[^\d]/g, '');
         
-        // Valid phone numbers are typically 7-15 digits
-        // Exclude LID identifiers which are often 13-15 digits starting with unusual patterns
-        if (cleaned.length < 7 || cleaned.length > 15) {
+        // Accept wider range for JID/LID conversion (6-15 digits)
+        if (cleaned.length < 6 || cleaned.length > 15) {
             return false;
         }
         
-        // Exclude common LID patterns (very long numbers that don't match country codes)
-        if (cleaned.length > 12 && !this.matchesKnownCountryCode(cleaned)) {
-            return false;
-        }
-        
+        // Accept all numbers now (including LIDs) - let the user decide what's useful
         return true;
     }
     

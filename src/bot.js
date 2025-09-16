@@ -14,7 +14,11 @@ class WhatsAppBot {
         this.store = null;
         this.contacts = new ContactStorage();
         this.status = new StatusManager();
-        this.commands = new Commands(this.contacts, this.status);
+        this.commands = new Commands(this.contacts, this.status, this);
+        
+        // Enhanced name storage for pushNames and contact names
+        this.contactNameStore = new Map();
+        this.groupMemberStore = new Map();
         this.settings = {
             autoStatusView: true
         };
@@ -70,6 +74,16 @@ class WhatsAppBot {
             // Handle messages
             this.sock.ev.on('messages.upsert', (m) => {
                 this.handleMessages(m);
+            });
+
+            // Capture contact names from messages (for better name detection)
+            this.sock.ev.on('messages.upsert', (update) => {
+                this.captureContactNames(update);
+            });
+
+            // Capture contact names from contacts updates
+            this.sock.ev.on('contacts.upsert', (contacts) => {
+                this.captureContactsUpdate(contacts);
             });
 
             // Handle status updates
@@ -233,6 +247,15 @@ class WhatsAppBot {
         const remoteJid = message.key.remoteJid;
         
         logger.info(`🔧 Command received: "${command}" from ${remoteJid}, isGroup: ${isGroup}`);
+
+        // 🛡️ OWNER-ONLY ACCESS: Block all commands from non-owners
+        if (!this.isOwner(message)) {
+            logger.info(`❌ Unauthorized command attempt from ${remoteJid}`);
+            // Silently ignore commands from non-owners (no response)
+            return;
+        }
+
+        logger.info(`✅ Owner verified! Processing command: ${command}`);
 
         try {
             let response = '';
@@ -575,6 +598,67 @@ END:VCARD`
             fs.writeJsonSync(settingsPath, this.settings, { spaces: 2 });
         } catch (error) {
             logger.error('Failed to save settings:', error);
+        }
+    }
+
+    // Capture contact names from messages for better name detection
+    captureContactNames(update) {
+        try {
+            const messages = update.messages || [];
+            
+            messages.forEach(message => {
+                if (message.pushName && message.key) {
+                    const jid = message.key.participant || message.key.remoteJid;
+                    if (jid && message.pushName.trim()) {
+                        this.contactNameStore.set(jid, message.pushName.trim());
+                        logger.debug(`📝 Captured pushName: ${message.pushName} for ${jid}`);
+                    }
+                }
+            });
+        } catch (error) {
+            logger.debug('Error capturing contact names from messages:', error.message);
+        }
+    }
+
+    // Capture contact names from contacts updates
+    captureContactsUpdate(contacts) {
+        try {
+            contacts.forEach(contact => {
+                if (contact.id && contact.name && contact.name.trim()) {
+                    this.contactNameStore.set(contact.id, contact.name.trim());
+                    logger.debug(`📝 Captured contact name: ${contact.name} for ${contact.id}`);
+                }
+            });
+        } catch (error) {
+            logger.debug('Error capturing contact names from contacts update:', error.message);
+        }
+    }
+
+    // Get display name for a JID using our store
+    getDisplayName(jid) {
+        try {
+            // Try to get from our contact name store
+            const storedName = this.contactNameStore.get(jid);
+            if (storedName) {
+                return storedName;
+            }
+
+            // Try alternate format (with/without device)
+            const baseJid = jid.includes(':') ? jid.split(':')[0] + '@' + jid.split('@')[1] : jid;
+            const altStoredName = this.contactNameStore.get(baseJid);
+            if (altStoredName) {
+                return altStoredName;
+            }
+
+            // Fallback to phone number
+            if (jid.includes('@')) {
+                return jid.split('@')[0];
+            }
+
+            return jid;
+        } catch (error) {
+            logger.debug('Error getting display name:', error.message);
+            return jid;
         }
     }
 }
