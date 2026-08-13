@@ -1,5 +1,4 @@
 const BaseBot = require('./bot');
-const fs = require('fs-extra');
 
 const OWNER_NUMBER = '2348160208114';
 
@@ -24,31 +23,35 @@ class LelopBot extends BaseBot {
   constructor(...args) {
     super(...args);
     this.scanState = { running: false, processed: 0, added: 0, skipped: 0 };
-    if (this.commands) {
-      this.commands.getGroupContacts = this.scanGroupContacts.bind(this);
-    }
+    if (this.commands) this.commands.getGroupContacts = this.scanGroupContacts.bind(this);
   }
 
   isOwner(message) {
     if (message?.key?.fromMe) return true;
+    const candidates = [message?.key?.participantAlt, message?.key?.participant, message?.key?.remoteJidAlt, message?.key?.remoteJid];
+    return candidates.some(candidate => digits(jidPhone(candidate)) === OWNER_NUMBER || digits(candidate) === OWNER_NUMBER);
+  }
 
-    const candidates = [
-      message?.key?.participantAlt,
-      message?.key?.participant,
-      message?.key?.remoteJidAlt,
-      message?.key?.remoteJid,
-    ];
-
-    return candidates.some((candidate) => digits(jidPhone(candidate)) === OWNER_NUMBER || digits(candidate) === OWNER_NUMBER);
+  async start(...args) {
+    // Keep the base implementation intact, but expose connection state to the dashboard.
+    const original = this.handleConnectionUpdate;
+    this.handleConnectionUpdate = async update => {
+      await original.call(this, update);
+      if (update?.connection === 'open') this.emit('connection_state', 'open');
+      if (update?.connection === 'close') this.emit('connection_state', 'close');
+    };
+    try {
+      return await super.start(...args);
+    } finally {
+      this.handleConnectionUpdate = original;
+    }
   }
 
   async resolveLidPhone(participant) {
     if (!participant) return null;
     if (participant.phoneNumber) return digits(participant.phoneNumber);
-
     const id = participant.id || '';
     if (id.endsWith('@s.whatsapp.net')) return digits(id);
-
     if (id.endsWith('@lid')) {
       try {
         const store = this.sock?.signalRepository?.getLIDMappingStore?.();
@@ -72,7 +75,6 @@ class LelopBot extends BaseBot {
       phone && this.store?.contacts?.[`${phone}@s.whatsapp.net`]?.name,
       phone && this.store?.contacts?.[`${phone}@s.whatsapp.net`]?.notify,
     ];
-
     for (const candidate of candidates) {
       const name = usableName(candidate);
       if (name) return name;
@@ -81,40 +83,23 @@ class LelopBot extends BaseBot {
   }
 
   async scanGroupContacts(sock, groupJid) {
-    if (this.scanState.running) return '⏳ A contact scan is already running. Use .stopscan to stop it.';
-
+    if (this.scanState.running) return '⏳ A contact scan is already running.';
     this.scanState = { running: true, processed: 0, added: 0, skipped: 0 };
     try {
       const metadata = await sock.groupMetadata(groupJid);
       const participants = Array.isArray(metadata?.participants) ? metadata.participants : [];
-      const batch = [];
-
       for (const participant of participants) {
         if (!this.scanState.running) break;
         const phone = await this.resolveLidPhone(participant);
         this.scanState.processed++;
-        if (!phone) {
-          this.scanState.skipped++;
-          continue;
-        }
-
+        if (!phone) { this.scanState.skipped++; continue; }
         const normalized = `+${phone}`;
         const name = this.resolveParticipantName(participant, phone);
-        if (this.contacts.exists(normalized)) {
-          this.scanState.skipped++;
-          continue;
-        }
-
+        if (this.contacts.exists(normalized)) { this.scanState.skipped++; continue; }
         await this.contacts.addContact({ number: normalized, name: name || 'Unknown' });
         this.scanState.added++;
-        batch.push(normalized);
-
-        if (batch.length >= 25) {
-          batch.length = 0;
-          await new Promise((resolve) => setImmediate(resolve));
-        }
+        if (this.scanState.processed % 25 === 0) await new Promise(resolve => setImmediate(resolve));
       }
-
       await this.contacts.save();
       const stopped = !this.scanState.running;
       return `${stopped ? '🛑 Scan stopped' : '✅ Scan complete'}\n\n👥 Group: ${metadata?.subject || 'Unknown'}\n📊 Members: ${participants.length}\n➕ Added: ${this.scanState.added}\n⏭️ Skipped: ${this.scanState.skipped}\n🔎 Processed: ${this.scanState.processed}`;
@@ -134,8 +119,7 @@ class LelopBot extends BaseBot {
   async getName(jid) {
     const phone = digits(jidPhone(jid) || jid);
     const direct = this.resolveParticipantName({ id: jid }, phone);
-    if (direct) return direct;
-    return phone ? `+${phone}` : String(jid || 'Unknown');
+    return direct || (phone ? `+${phone}` : String(jid || 'Unknown'));
   }
 }
 
