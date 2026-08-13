@@ -2,16 +2,14 @@
   "name": "lelop-xmd",
   "version": "2.0.0",
   "description": "LELOP-XMD WhatsApp automation and contact management dashboard.",
-  "main": "server.js",
+  "main": "lelop-server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "node lelop-server.js",
     "dev": "vite",
     "build": "vite build",
     "test": "node -e \"console.log('No automated tests configured')\""
   },
-  "engines": {
-    "node": ">=20.0.0"
-  },
+  "engines": {"node": ">=20.0.0"},
   "dependencies": {
     "@neondatabase/serverless": "^1.0.1",
     "@octokit/rest": "^22.0.0",
