@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - ChatGrabber</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .spinner { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .fade-in { animation: fadeIn 0.4s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .code-char {
+            font-family: 'Courier New', monospace;
+            font-size: 2rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+        }
+        .blink { animation: blink 1.2s ease-in-out infinite; }
+        @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+    </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-green-50 via-white to-emerald-50 flex items-center justify-center p-4">
+
+    <div class="w-full max-w-sm fade-in">
+
+        <!-- Logo -->
+        <div class="text-center mb-6">
+            <div class="inline-flex items-center justify-center w-14 h-14 bg-green-500 rounded-2xl shadow-lg mb-3">
+                <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                </svg>
+            </div>
+            <h1 class="text-2xl font-bold text-gray-900">ChatGrabber</h1>
+            <p class="text-sm text-gray-500">Sign in with WhatsApp</p>
+        </div>
+
+        <!-- Card -->
+        <div class="bg-white rounded-2xl shadow-xl overflow-hidden">
+
+            <!-- ① Loading State -->
+            <div id="loadingState" class="p-8 text-center">
+                <svg class="spinner w-10 h-10 text-green-500 mx-auto mb-4" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                </svg>
+                <p class="text-gray-500 text-sm" id="loadingText">Connecting to WhatsApp...</p>
+            </div>
+
+            <!-- ② Phone Number Input State -->
+            <div id="phoneState" class="hidden p-6">
+                <div class="text-center mb-5">
+                    <div class="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                        <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
+                        </svg>
+                    </div>
+                    <h2 class="text-base font-semibold text-gray-800">Enter your phone number</h2>
+                    <p class="text-xs text-gray-500 mt-1">We'll send a linking code to your WhatsApp</p>
+                </div>
+                <div class="mb-4">
+                    <label class="text-xs font-medium text-gray-600 mb-1.5 block">Phone number with country code</label>
+                    <div class="relative">
+                        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">+</span>
+                        <input id="phoneInput" type="tel" placeholder="2348029399425"
+                            class="w-full pl-7 pr-3 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-green-400 focus:border-transparent"
+                            onkeydown="if(event.key==='Enter') submitPhone()">
+                    </div>
+                    <p class="text-xs text-gray-400 mt-1.5">Include country code — no +, no spaces (e.g. 2348029399425)</p>
+                </div>
+                <p id="phoneError" class="text-xs text-red-500 hidden mb-3"></p>
+                <button onclick="submitPhone()" id="phoneBtn"
+                    class="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-3 rounded-xl transition-colors text-sm">
+                    Get Linking Code
+                </button>
+                <div class="mt-3 border-t border-gray-100 pt-3">
+                    <button onclick="showState('sessionState')"
+                        class="w-full text-xs text-gray-400 hover:text-gray-600 py-1.5 transition-colors">
+                        Have a Session ID? Use it instead →
+                    </button>
+                </div>
+            </div>
+
+            <!-- ③ Pairing Code State -->
+            <div id="pairingState" class="hidden p-6">
+                <div class="text-center mb-5">
+                    <h2 class="text-base font-semibold text-gray-800">Your linking code</h2>
+                    <p class="text-xs text-gray-500 mt-1">Open WhatsApp on your phone and enter this code</p>
+                </div>
+
+                <!-- The big code -->
+                <div class="bg-gray-50 rounded-2xl p-5 text-center mb-4 border-2 border-green-100">
+                    <div class="code-char text-green-700 tracking-widest" id="pairingCodeDisplay">----</div>
+                    <p class="text-xs text-gray-400 mt-2 blink" id="pairingWaiting">Waiting for you to enter this code...</p>
+                </div>
+
+                <!-- Step-by-step instructions -->
+                <div class="space-y-2 mb-4">
+                    <div class="flex items-start gap-2.5 text-xs text-gray-600">
+                        <span class="w-5 h-5 rounded-full bg-green-500 text-white text-xs flex items-center justify-center flex-shrink-0 font-bold mt-0.5">1</span>
+                        <span>Open <strong>WhatsApp</strong> on your phone</span>
+                    </div>
+                    <div class="flex items-start gap-2.5 text-xs text-gray-600">
+                        <span class="w-5 h-5 rounded-full bg-green-500 text-white text-xs flex items-center justify-center flex-shrink-0 font-bold mt-0.5">2</span>
+                        <span>Go to <strong>Settings → Linked Devices → Link a device</strong></span>
+                    </div>
+                    <div class="flex items-start gap-2.5 text-xs text-gray-600">
+                        <span class="w-5 h-5 rounded-full bg-green-500 text-white text-xs flex items-center justify-center flex-shrink-0 font-bold mt-0.5">3</span>
+                        <span>Tap <strong>"Link with phone number"</strong> and enter the code above</span>
+                    </div>
+                </div>
+
+                <!-- Confirm button — appears after code is generated -->
+                <button id="confirmPairingBtn" onclick="confirmPairingEntered()"
+                    class="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-3 rounded-xl transition-colors text-sm mb-2">
+                    ✓ I've entered the code in WhatsApp
+                </button>
+
+                <div id="confirmStatus" class="text-xs text-center text-gray-500 mb-1 hidden"></div>
+
+                <button onclick="goBackToPhone()"
+                    class="w-full text-xs text-gray-400 hover:text-gray-600 py-2 transition-colors">
+                    ← Use a different number
+                </button>
+            </div>
+
+            <!-- ④ Already Connected State -->
+            <div id="connectedState" class="hidden p-6 text-center">
+                <div class="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <svg class="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                    </svg>
+                </div>
+                <h2 class="text-base font-semibold text-gray-800 mb-1">WhatsApp Connected</h2>
+                <p class="text-sm text-green-600 font-medium mb-1" id="connectedPhone">+234...</p>
+                <p class="text-xs text-gray-400 mb-5">Your WhatsApp is already linked</p>
+                <button onclick="continueToApp()" id="continueBtn"
+                    class="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-2.5 rounded-xl transition-colors text-sm">
+                    Continue to Dashboard →
+                </button>
+                <button onclick="getSessionId()"
+                    class="w-full mt-2 text-xs text-blue-500 hover:text-blue-700 py-2 transition-colors">
+                    Get My Session ID
+                </button>
+                <button onclick="goBackToPhone()"
+                    class="w-full text-xs text-gray-400 hover:text-gray-600 py-1.5 transition-colors">
+                    Sign in with a different number
+                </button>
+                <!-- Session ID display -->
+                <div id="sessionIdBox" class="hidden mt-3 p-3 bg-gray-50 rounded-xl border border-gray-200 text-left">
+                    <p class="text-xs text-gray-500 mb-2 font-medium">Your Session ID (keep it private):</p>
+                    <textarea id="sessionIdText" rows="3" readonly
+                        class="w-full text-xs font-mono bg-white border border-gray-200 rounded-lg p-2 resize-none focus:outline-none"></textarea>
+                    <button onclick="copySessionId()"
+                        class="w-full mt-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium py-2 rounded-lg transition-colors">
+                        Copy Session ID
+                    </button>
+                </div>
+            </div>
+
+            <!-- ⑤ Session ID State -->
+            <div id="sessionState" class="hidden p-6">
+                <div class="text-center mb-4">
+                    <h2 class="text-base font-semibold text-gray-800">Use Session ID</h2>
+                    <p class="text-xs text-gray-500 mt-1">Paste your Session ID to connect without a code</p>
+                </div>
+                <textarea id="sessionInput" rows="4" placeholder="Paste your Session ID here (starts with WA_...)"
+                    class="w-full rounded-xl border border-gray-300 px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-green-400 resize-none mb-3"></textarea>
+                <button onclick="submitSessionId()"
+                    class="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-2.5 rounded-xl transition-colors text-sm mb-2">
+                    Connect with Session ID
+                </button>
+                <p id="sessionError" class="text-xs text-red-500 hidden mb-2"></p>
+                <button onclick="showState('phoneState')"
+                    class="w-full text-xs text-gray-400 hover:text-gray-600 py-2 transition-colors">
+                    ← Back to phone number login
+                </button>
+            </div>
+
+            <!-- ⑥ Success State -->
+            <div id="successState" class="hidden p-8 text-center">
+                <div class="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <svg class="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                    </svg>
+                </div>
+                <h2 class="text-base font-semibold text-gray-800 mb-1">Signed In!</h2>
+                <p class="text-sm text-gray-500" id="successPhone"></p>
+                <p class="text-xs text-gray-400 mt-1">Redirecting to dashboard...</p>
+            </div>
+
+        </div>
+
+        <p class="text-center text-xs text-gray-400 mt-4">Your WhatsApp linking code is your password</p>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        let botReady = false;
+
+        // ── Socket events ──────────────────────────────────────────
+        socket.on('connect', () => {
+            checkStatus();
+        });
+
+        socket.on('user_authenticated', (data) => {
+            onAuthenticated(data.phone || data.number || '');
+        });
+
+        socket.on('user-authenticated', (data) => {
+            onAuthenticated(data.phone || data.number || '');
+        });
+
+        socket.on('whatsapp_connected', (data) => {
+            onAuthenticated(data.phone || data.number || '');
+        });
+
+        // ── On load: check if already connected ───────────────────
+        async function checkStatus() {
+            try {
+                const r = await fetch('/api/status');
+                const data = await r.json();
+                if (data.connected && data.phone) {
+                    botReady = true;
+                    showConnectedState(data.phone);
+                } else if (data.botReady || data.initialized) {
+                    botReady = true;
+                    showState('phoneState');
+                } else {
+                    // Still starting up — poll again
+                    document.getElementById('loadingText').textContent = 'Starting WhatsApp connection...';
+                    setTimeout(checkStatus, 2500);
+                }
+            } catch {
+                setTimeout(checkStatus, 2000);
+            }
+        }
+
+        // ── Phone number submit ───────────────────────────────────
+        async function submitPhone() {
+            const phone = document.getElementById('phoneInput').value.trim().replace(/\D/g,'');
+            const errEl = document.getElementById('phoneError');
+            errEl.classList.add('hidden');
+
+            if (!phone || phone.length < 7) {
+                errEl.textContent = 'Please enter a valid phone number with country code';
+                errEl.classList.remove('hidden');
+                return;
+            }
+
+            const btn = document.getElementById('phoneBtn');
+            btn.textContent = 'Requesting code...';
+            btn.disabled = true;
+
+            try {
+                const r = await fetch('/api/auth/request-pairing-code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phoneNumber: phone })
+                });
+                const data = await r.json();
+
+                if (data.success && data.code) {
+                    showPairingCode(data.code);
+                } else {
+                    errEl.textContent = data.error || 'Failed to get linking code. Try again.';
+                    errEl.classList.remove('hidden');
+                    btn.textContent = 'Get Linking Code';
+                    btn.disabled = false;
+                }
+            } catch {
+                errEl.textContent = 'Server error. Please try again.';
+                errEl.classList.remove('hidden');
+                btn.textContent = 'Get Linking Code';
+                btn.disabled = false;
+            }
+        }
+
+        function showPairingCode(code) {
+            showState('pairingState');
+            document.getElementById('pairingCodeDisplay').textContent = code;
+        }
+
+        function goBackToPhone() {
+            document.getElementById('phoneBtn').textContent = 'Get Linking Code';
+            document.getElementById('phoneBtn').disabled = false;
+            document.getElementById('phoneError').classList.add('hidden');
+            showState('phoneState');
+        }
+
+        async function confirmPairingEntered() {
+            const btn = document.getElementById('confirmPairingBtn');
+            const statusEl = document.getElementById('confirmStatus');
+            btn.textContent = 'Connecting to WhatsApp...';
+            btn.disabled = true;
+            statusEl.textContent = 'Waiting for WhatsApp to confirm the pairing...';
+            statusEl.classList.remove('hidden');
+            statusEl.style.color = '#6b7280';
+
+            try {
+                const r = await fetch('/api/auth/confirm-pairing', { method: 'POST' });
+                const data = await r.json();
+
+                if (data.connected) {
+                    // Success — the status poller will handle the redirect
+                    statusEl.textContent = '✓ Connected! Loading dashboard...';
+                    statusEl.style.color = '#16a34a';
+                } else {
+                    statusEl.textContent = data.message || 'Not connected yet — make sure you entered the code and try again.';
+                    statusEl.style.color = '#dc2626';
+                    btn.textContent = '✓ I\'ve entered the code in WhatsApp';
+                    btn.disabled = false;
+                }
+            } catch {
+                statusEl.textContent = 'Connection error — please try again.';
+                statusEl.style.color = '#dc2626';
+                btn.textContent = '✓ I\'ve entered the code in WhatsApp';
+                btn.disabled = false;
+            }
+        }
+
+        // ── After authentication ──────────────────────────────────
+        function onAuthenticated(phone) {
+            const token = btoa(JSON.stringify({ phone, ts: Date.now() }));
+            localStorage.setItem('auth_token', token);
+            localStorage.setItem('whatsapp_phone', phone);
+
+            document.getElementById('successPhone').textContent = phone;
+            showState('successState');
+            setTimeout(() => window.location.href = '/', 1500);
+        }
+
+        function showConnectedState(phone) {
+            document.getElementById('connectedPhone').textContent = phone;
+            showState('connectedState');
+        }
+
+        function continueToApp() {
+            const phone = document.getElementById('connectedPhone').textContent;
+            onAuthenticated(phone);
+        }
+
+        // ── Session ID helpers ────────────────────────────────────
+        function getSessionId() {
+            fetch('/api/auth/get-session-id')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('sessionIdText').value = data.sessionId;
+                        document.getElementById('sessionIdBox').classList.remove('hidden');
+                    } else {
+                        alert(data.error || 'Could not get Session ID');
+                    }
+                }).catch(() => alert('Server error. Try again.'));
+        }
+
+        function copySessionId() {
+            const text = document.getElementById('sessionIdText').value;
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = event.target;
+                btn.textContent = 'Copied!';
+                setTimeout(() => btn.textContent = 'Copy Session ID', 2000);
+            });
+        }
+
+        function submitSessionId() {
+            const sessionId = document.getElementById('sessionInput').value.trim();
+            const errEl = document.getElementById('sessionError');
+            errEl.classList.add('hidden');
+            if (!sessionId || !sessionId.startsWith('WA_')) {
+                errEl.textContent = 'Invalid format — session ID must start with WA_';
+                errEl.classList.remove('hidden');
+                return;
+            }
+            setLoading('Applying Session ID...');
+            fetch('/api/auth/use-session-id', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sessionId })
+            }).then(r => r.json()).then(data => {
+                if (data.success) {
+                    setLoading('Connecting...');
+                } else {
+                    showState('sessionState');
+                    errEl.textContent = data.error || 'Failed to apply session ID';
+                    errEl.classList.remove('hidden');
+                }
+            }).catch(() => {
+                showState('sessionState');
+                errEl.textContent = 'Server error. Try again.';
+                errEl.classList.remove('hidden');
+            });
+        }
+
+        // ── Utilities ─────────────────────────────────────────────
+        function showState(stateId) {
+            ['loadingState','phoneState','pairingState','connectedState','sessionState','successState'].forEach(id => {
+                document.getElementById(id).classList.add('hidden');
+            });
+            document.getElementById(stateId).classList.remove('hidden');
+        }
+
+        function setLoading(msg) {
+            showState('loadingState');
+            document.getElementById('loadingText').textContent = msg;
+        }
+
+        // Boot — always clear any old session so login is always fresh
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('whatsapp_phone');
+        setLoading('Connecting to WhatsApp...');
+        setTimeout(checkStatus, 800);
+    </script>
+</body>
+</html>

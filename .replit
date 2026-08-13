@@ -1,0 +1,53 @@
+modules = ["nodejs-20", "python-3.11", "postgresql-16"]
+
+[nix]
+channel = "stable-25_05"
+packages = ["zip", "unzip"]
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "whatsapp_bot"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Web Server"
+
+[[workflows.workflow]]
+name = "whatsapp_bot"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm install @whiskeysockets/baileys qrcode-terminal fs-extra pino pino-pretty csv-writer"
+
+[[workflows.workflow]]
+name = "Web Server"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node server.js"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[agent]
+integrations = ["github:1.0.0"]
+expertMode = true
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[deployment]
+deploymentTarget = "cloudrun"
+run = ["sh", "-c", "node server.js"]

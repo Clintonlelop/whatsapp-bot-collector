@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChatGrabber - WhatsApp Contact Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+    <script src="https://unpkg.com/qrcode@1.5.3/build/qrcode.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .loading-pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        @keyframes pulse { 
+            0%, 100% { opacity: 1; } 
+            50% { opacity: .5; } 
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="app" class="flex h-screen">
+        <!-- Sidebar -->
+        <aside class="w-64 bg-white border-r border-gray-200 flex flex-col">
+            <div class="p-6">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center">
+                        <i data-lucide="zap" class="w-6 h-6 text-white"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-bold text-gray-900">ChatGrabber</h1>
+                        <p class="text-sm text-gray-500">Contact Manager</p>
+                    </div>
+                </div>
+            </div>
+            
+            <nav class="flex-1 px-6">
+                <ul class="space-y-1">
+                    <li>
+                        <a href="#" onclick="showTab('dashboard')" class="nav-item flex items-center px-3 py-2 text-sm font-medium rounded-md text-green-600 bg-green-50">
+                            <i data-lucide="home" class="w-5 h-5 mr-3"></i>
+                            Dashboard
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#" onclick="showTab('contacts')" class="nav-item flex items-center px-3 py-2 text-sm font-medium rounded-md text-gray-700 hover:text-gray-900 hover:bg-gray-50">
+                            <i data-lucide="users" class="w-5 h-5 mr-3"></i>
+                            Contacts
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#" onclick="showTab('messages')" class="nav-item flex items-center px-3 py-2 text-sm font-medium rounded-md text-gray-700 hover:text-gray-900 hover:bg-gray-50">
+                            <i data-lucide="message-circle" class="w-5 h-5 mr-3"></i>
+                            Messages
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#" onclick="showTab('export')" class="nav-item flex items-center px-3 py-2 text-sm font-medium rounded-md text-gray-700 hover:text-gray-900 hover:bg-gray-50">
+                            <i data-lucide="download" class="w-5 h-5 mr-3"></i>
+                            Export
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+            
+            <!-- Connection Status Section -->
+            <div class="p-4 border-t border-gray-200">
+                <div class="flex items-center justify-between mb-3">
+                    <span class="text-sm font-medium text-gray-900">Connection Status</span>
+                    <div class="flex items-center space-x-2">
+                        <div id="statusIndicator" class="w-2 h-2 rounded-full bg-red-500"></div>
+                        <span id="connectionStatus" class="text-xs font-medium text-red-600">Disconnected</span>
+                    </div>
+                </div>
+                
+                <!-- QR Code Display -->
+                <div id="qrCodeContainer" class="hidden mb-4 p-3 bg-white rounded-lg border border-gray-200">
+                    <p class="text-xs text-gray-500 mb-3 text-center">
+                        Scan this QR code with WhatsApp on your phone
+                    </p>
+                    <div class="flex justify-center">
+                        <canvas id="qrCodeCanvas" class="border border-gray-200 rounded"></canvas>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-2 text-center">
+                        Open WhatsApp → Linked Devices → Link a Device
+                    </p>
+                </div>
+                
+                <button id="reconnectBtn" onclick="requestReconnection()" class="w-full bg-green-600 text-white text-sm font-medium py-2 px-4 rounded-md hover:bg-green-700 transition-colors">
+                    <span id="reconnectText">Connect</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 flex flex-col overflow-hidden">
+            <!-- Header -->
+            <header class="bg-white border-b border-gray-200 px-6 py-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h2 class="text-xl font-semibold text-gray-900" id="pageTitle">Dashboard</h2>
+                        <p class="text-sm text-gray-500" id="pageDescription">Monitor WhatsApp messages and manage detected contacts</p>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                        <button onclick="exportContacts('csv')" class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
+                            <i data-lucide="download" class="w-4 h-4 mr-2"></i>
+                            Export
+                        </button>
+                        <button onclick="refreshData()" class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700">
+                            <i data-lucide="refresh-cw" class="w-4 h-4 mr-2"></i>
+                            Refresh
+                        </button>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Dashboard Content -->
+            <div class="flex-1 overflow-auto p-6">
+                <!-- Dashboard Tab -->
+                <div id="dashboard-tab" class="tab-content">
+                    <!-- Metrics Cards -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                        <div class="bg-white rounded-lg shadow p-6">
+                            <div class="flex items-center">
+                                <div class="flex-shrink-0">
+                                    <i data-lucide="users" class="w-8 h-8 text-blue-500"></i>
+                                </div>
+                                <div class="ml-5 w-0 flex-1">
+                                    <dl>
+                                        <dt class="text-sm font-medium text-gray-500 truncate">Total Contacts</dt>
+                                        <dd class="text-lg font-medium text-gray-900" id="totalContacts">0</dd>
+                                    </dl>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-lg shadow p-6">
+                            <div class="flex items-center">
+                                <div class="flex-shrink-0">
+                                    <i data-lucide="message-circle" class="w-8 h-8 text-green-500"></i>
+                                </div>
+                                <div class="ml-5 w-0 flex-1">
+                                    <dl>
+                                        <dt class="text-sm font-medium text-gray-500 truncate">Total Messages</dt>
+                                        <dd class="text-lg font-medium text-gray-900" id="totalMessages">0</dd>
+                                    </dl>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-lg shadow p-6">
+                            <div class="flex items-center">
+                                <div class="flex-shrink-0">
+                                    <i data-lucide="plus-circle" class="w-8 h-8 text-purple-500"></i>
+                                </div>
+                                <div class="ml-5 w-0 flex-1">
+                                    <dl>
+                                        <dt class="text-sm font-medium text-gray-500 truncate">New Today</dt>
+                                        <dd class="text-lg font-medium text-gray-900" id="newContactsToday">0</dd>
+                                    </dl>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-lg shadow p-6">
+                            <div class="flex items-center">
+                                <div class="flex-shrink-0">
+                                    <i data-lucide="activity" class="w-8 h-8 text-orange-500"></i>
+                                </div>
+                                <div class="ml-5 w-0 flex-1">
+                                    <dl>
+                                        <dt class="text-sm font-medium text-gray-500 truncate">Detection Rate</dt>
+                                        <dd class="text-lg font-medium text-gray-900">Auto</dd>
+                                    </dl>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recent Activity -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <!-- Recent Messages -->
+                        <div class="bg-white rounded-lg shadow">
+                            <div class="px-6 py-4 border-b border-gray-200">
+                                <h3 class="text-lg font-medium text-gray-900">Recent Messages</h3>
+                            </div>
+                            <div class="p-6">
+                                <div id="recentMessages" class="space-y-4">
+                                    <div class="text-sm text-gray-500 text-center py-8">Loading recent messages...</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Recent Contacts -->
+                        <div class="bg-white rounded-lg shadow">
+                            <div class="px-6 py-4 border-b border-gray-200">
+                                <h3 class="text-lg font-medium text-gray-900">Recent Contacts</h3>
+                            </div>
+                            <div class="p-6">
+                                <div id="recentContacts" class="space-y-4">
+                                    <div class="text-sm text-gray-500 text-center py-8">Loading recent contacts...</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Contacts Tab -->
+                <div id="contacts-tab" class="tab-content hidden">
+                    <div class="bg-white rounded-lg shadow">
+                        <div class="px-6 py-4 border-b border-gray-200">
+                            <div class="flex items-center justify-between">
+                                <h3 class="text-lg font-medium text-gray-900">All Contacts</h3>
+                                <div class="flex items-center space-x-3">
+                                    <input type="text" id="searchContacts" placeholder="Search contacts..." class="block w-64 rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500 sm:text-sm">
+                                    <button onclick="exportContacts('vcf')" class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                                        <i data-lucide="download" class="w-4 h-4 mr-1"></i>
+                                        VCF
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="overflow-hidden">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone Number</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Source</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date Added</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="contactsTableBody" class="bg-white divide-y divide-gray-200">
+                                    <tr>
+                                        <td colspan="4" class="px-6 py-4 text-center text-sm text-gray-500">Loading contacts...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Messages Tab -->
+                <div id="messages-tab" class="tab-content hidden">
+                    <div class="bg-white rounded-lg shadow">
+                        <div class="px-6 py-4 border-b border-gray-200">
+                            <h3 class="text-lg font-medium text-gray-900">Message History</h3>
+                        </div>
+                        <div class="p-6">
+                            <div id="messagesContainer" class="space-y-4">
+                                <div class="text-sm text-gray-500 text-center py-8">Loading messages...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Export Tab -->
+                <div id="export-tab" class="tab-content hidden">
+                    <div class="bg-white rounded-lg shadow">
+                        <div class="px-6 py-4 border-b border-gray-200">
+                            <h3 class="text-lg font-medium text-gray-900">Export Contacts</h3>
+                        </div>
+                        <div class="p-6">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div class="border border-gray-200 rounded-lg p-6">
+                                    <div class="flex items-center mb-4">
+                                        <i data-lucide="file-text" class="w-8 h-8 text-green-500 mr-3"></i>
+                                        <div>
+                                            <h4 class="text-lg font-medium text-gray-900">CSV Export</h4>
+                                            <p class="text-sm text-gray-500">Export contacts as CSV for spreadsheets</p>
+                                        </div>
+                                    </div>
+                                    <button onclick="exportContacts('csv')" class="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700">
+                                        <i data-lucide="download" class="w-4 h-4 mr-2"></i>
+                                        Download CSV
+                                    </button>
+                                </div>
+
+                                <div class="border border-gray-200 rounded-lg p-6">
+                                    <div class="flex items-center mb-4">
+                                        <i data-lucide="contact" class="w-8 h-8 text-blue-500 mr-3"></i>
+                                        <div>
+                                            <h4 class="text-lg font-medium text-gray-900">VCF Export</h4>
+                                            <p class="text-sm text-gray-500">Export contacts as VCF for phone imports</p>
+                                        </div>
+                                    </div>
+                                    <button onclick="exportContacts('vcf')" class="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700">
+                                        <i data-lucide="download" class="w-4 h-4 mr-2"></i>
+                                        Download VCF
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Socket.IO -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        // Auth guard — redirect to login if no token
+        (function() {
+            const token = localStorage.getItem('auth_token');
+            if (!token) {
+                window.location.href = '/login.html';
+                return;
+            }
+            // Verify token in background; if invalid, redirect to login
+            fetch('/api/auth/verify', {
+                headers: { 'Authorization': 'Bearer ' + token }
+            }).then(r => r.json()).then(data => {
+                if (!data.valid) {
+                    localStorage.removeItem('auth_token');
+                    window.location.href = '/login.html';
+                }
+            }).catch(() => {});
+        })();
+
+        // Initialize Lucide icons
+        lucide.createIcons();
+
+        // Global state
+        let currentTab = 'dashboard';
+        let analytics = { totalContacts: 0, totalMessages: 0, newContactsToday: 0 };
+        let contacts = [];
+        let messages = [];
+
+        // Initialize app
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeSocket();
+            loadInitialData();
+            setupAutoRefresh();
+            setupSearch();
+        });
+
+        // Tab management
+        function showTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.add('hidden');
+            });
+            
+            // Remove active class from all nav items
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.classList.remove('text-green-600', 'bg-green-50');
+                item.classList.add('text-gray-700', 'hover:text-gray-900', 'hover:bg-gray-50');
+            });
+
+            // Show selected tab
+            document.getElementById(`${tabName}-tab`).classList.remove('hidden');
+            
+            // Add active class to selected nav item
+            event.target.classList.remove('text-gray-700', 'hover:text-gray-900', 'hover:bg-gray-50');
+            event.target.classList.add('text-green-600', 'bg-green-50');
+
+            // Update header
+            const titles = {
+                dashboard: 'Dashboard',
+                contacts: 'Contacts',
+                messages: 'Messages',
+                export: 'Export'
+            };
+            const descriptions = {
+                dashboard: 'Monitor WhatsApp messages and manage detected contacts',
+                contacts: 'View and manage all detected contacts',
+                messages: 'Browse message history and detected phone numbers',
+                export: 'Export contacts in various formats'
+            };
+            
+            document.getElementById('pageTitle').textContent = titles[tabName];
+            document.getElementById('pageDescription').textContent = descriptions[tabName];
+            
+            currentTab = tabName;
+            
+            // Load tab-specific data
+            if (tabName === 'contacts') {
+                loadContacts();
+            } else if (tabName === 'messages') {
+                loadMessages();
+            }
+        }
+
+        // Socket.IO setup
+        function initializeSocket() {
+            socket = io();
+            
+            socket.on('connect', () => {
+                console.log('Connected to server');
+                updateConnectionStatus('connected');
+            });
+            
+            socket.on('disconnect', () => {
+                console.log('Disconnected from server');
+                updateConnectionStatus('disconnected');
+            });
+            
+            socket.on('qr_update', (data) => {
+                console.log('QR code received:', data && data.qr ? 'Yes' : 'No');
+                if (data && data.qr) {
+                    displayQRCode(data.qr);
+                    updateConnectionStatus('connecting');
+                } else {
+                    hideQRCode();
+                }
+            });
+            
+            socket.on('whatsapp-ready', () => {
+                console.log('WhatsApp connected successfully');
+                updateConnectionStatus('connected');
+                hideQRCode();
+                loadInitialData(); // Refresh data when connected
+            });
+            
+            socket.on('whatsapp-disconnected', () => {
+                console.log('WhatsApp disconnected');
+                updateConnectionStatus('disconnected');
+                hideQRCode();
+            });
+            
+            socket.on('analytics-update', (data) => {
+                analytics = data;
+                updateAnalyticsDisplay();
+            });
+            
+            socket.on('user-authenticated', (userInfo) => {
+                console.log('User authenticated:', userInfo);
+                if (userInfo && userInfo.token) localStorage.setItem('auth_token', userInfo.token);
+                displayUserInfo(userInfo);
+                updateConnectionStatus('authenticated');
+                hideQRCode();
+                loadInitialData();
+            });
+
+            socket.on('user_authenticated', (userInfo) => {
+                console.log('User authenticated:', userInfo);
+                if (userInfo && userInfo.token) localStorage.setItem('auth_token', userInfo.token);
+                displayUserInfo(userInfo);
+                updateConnectionStatus('authenticated');
+                hideQRCode();
+                loadInitialData();
+            });
+        }
+        
+        function updateConnectionStatus(status) {
+            connectionStatus = status;
+            const statusIndicator = document.getElementById('statusIndicator');
+            const statusText = document.getElementById('connectionStatus');
+            const reconnectBtn = document.getElementById('reconnectBtn');
+            const reconnectText = document.getElementById('reconnectText');
+            
+            switch(status) {
+                case 'connected':
+                    statusIndicator.className = 'w-2 h-2 rounded-full bg-green-500';
+                    statusText.textContent = 'Connected';
+                    statusText.className = 'text-xs font-medium text-green-600';
+                    reconnectText.textContent = 'Reconnect';
+                    reconnectBtn.disabled = false;
+                    break;
+                case 'authenticated':
+                    statusIndicator.className = 'w-2 h-2 rounded-full bg-blue-500';
+                    statusText.textContent = 'Authenticated';
+                    statusText.className = 'text-xs font-medium text-blue-600';
+                    reconnectText.textContent = 'Reconnect';
+                    reconnectBtn.disabled = false;
+                    break;
+                case 'connecting':
+                    statusIndicator.className = 'w-2 h-2 rounded-full bg-yellow-500';
+                    statusText.textContent = 'Connecting...';
+                    statusText.className = 'text-xs font-medium text-yellow-600';
+                    reconnectText.textContent = 'Connecting...';
+                    reconnectBtn.disabled = true;
+                    break;
+                case 'disconnected':
+                default:
+                    statusIndicator.className = 'w-2 h-2 rounded-full bg-red-500';
+                    statusText.textContent = 'Disconnected';
+                    statusText.className = 'text-xs font-medium text-red-600';
+                    reconnectText.textContent = 'Connect';
+                    reconnectBtn.disabled = false;
+                    break;
+            }
+        }
+        
+        function displayQRCode(qrData) {
+            const container = document.getElementById('qrCodeContainer');
+            const canvas = document.getElementById('qrCodeCanvas');
+            
+            console.log('✅ Real QR code loaded:', qrData.substring(0, 50));
+            
+            // Show QR container
+            container.classList.remove('hidden');
+            
+            // Check if QRCode library is available
+            if (typeof QRCode === 'undefined') {
+                console.error('QRCode library not loaded, falling back to image display');
+                // Fallback: display as image if QRCode library failed to load
+                canvas.style.display = 'none';
+                const img = document.createElement('img');
+                img.src = qrData;
+                img.style.width = '160px';
+                img.style.height = '160px';
+                img.style.border = '1px solid #ccc';
+                container.appendChild(img);
+                return;
+            }
+            
+            // Generate QR code using library
+            QRCode.toCanvas(canvas, qrData, {
+                width: 160,
+                margin: 2,
+                color: {
+                    dark: '#000000',
+                    light: '#FFFFFF'
+                }
+            }, function (error) {
+                if (error) {
+                    console.error('QR Code generation error:', error);
+                    // Fallback to image display
+                    canvas.style.display = 'none';
+                    const img = document.createElement('img');
+                    img.src = qrData;
+                    img.style.width = '160px';
+                    img.style.height = '160px';
+                    img.style.border = '1px solid #ccc';
+                    container.appendChild(img);
+                } else {
+                    console.log('✅ Real QR code loaded:', 'Real WhatsApp QR code ready for scanning');
+                    currentQRCode = qrData;
+                }
+            });
+        }
+        
+        function hideQRCode() {
+            const container = document.getElementById('qrCodeContainer');
+            container.classList.add('hidden');
+            currentQRCode = null;
+        }
+        
+        function displayUserInfo(userInfo) {
+            // Find the QR code container and replace it with user info
+            const qrContainer = document.getElementById('qrCodeContainer');
+            const userInfoHtml = `
+                <div class="text-center p-4 border border-blue-200 rounded-lg bg-blue-50">
+                    <div class="mb-2">
+                        <i data-lucide="check-circle" class="w-8 h-8 text-blue-500 mx-auto mb-2"></i>
+                    </div>
+                    <h3 class="font-semibold text-blue-900 mb-1">Successfully Authenticated!</h3>
+                    <div class="text-sm text-blue-700">
+                        <div class="mb-1"><strong>Name:</strong> ${userInfo.name}</div>
+                        <div><strong>Phone:</strong> +${userInfo.phone}</div>
+                    </div>
+                    <div class="mt-2 text-xs text-blue-600">
+                        ✅ You now have owner access to the bot
+                    </div>
+                </div>
+            `;
+            qrContainer.innerHTML = userInfoHtml;
+            qrContainer.classList.remove('hidden');
+            
+            // Re-initialize lucide icons for the new content
+            if (typeof lucide !== 'undefined') {
+                lucide.createIcons();
+            }
+            
+            console.log('✅ User info displayed:', userInfo.name, userInfo.phone);
+        }
+        
+        function requestReconnection() {
+            if (socket && connectionStatus !== 'connecting') {
+                console.log('Requesting reconnection...');
+                socket.emit('request-reconnect');
+                updateConnectionStatus('connecting');
+            }
+        }
+
+        // Data loading functions
+        async function loadInitialData() {
+            try {
+                await Promise.all([
+                    loadAnalytics(),
+                    loadRecentContacts(),
+                    loadRecentMessages()
+                ]);
+            } catch (error) {
+                console.error('Failed to load initial data:', error);
+            }
+        }
+
+        async function loadAnalytics() {
+            try {
+                const response = await fetch('/api/analytics');
+                if (response.ok) {
+                    analytics = await response.json();
+                    updateAnalyticsDisplay();
+                }
+            } catch (error) {
+                console.error('Failed to load analytics:', error);
+            }
+        }
+
+        function updateAnalyticsDisplay() {
+            document.getElementById('totalContacts').textContent = analytics.totalContacts || 0;
+            document.getElementById('totalMessages').textContent = analytics.totalMessages || 0;
+            document.getElementById('newContactsToday').textContent = analytics.newContactsToday || 0;
+        }
+
+        async function loadContacts() {
+            try {
+                const response = await fetch('/api/contacts');
+                if (response.ok) {
+                    contacts = await response.json();
+                    displayContacts(contacts);
+                }
+            } catch (error) {
+                console.error('Failed to load contacts:', error);
+                document.getElementById('contactsTableBody').innerHTML = 
+                    '<tr><td colspan="4" class="px-6 py-4 text-center text-sm text-gray-500">Failed to load contacts</td></tr>';
+            }
+        }
+
+        function displayContacts(contactsToShow) {
+            const tbody = document.getElementById('contactsTableBody');
+            if (contactsToShow.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="px-6 py-4 text-center text-sm text-gray-500">No contacts found</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = contactsToShow.map(contact => `
+                <tr>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <div class="flex items-center">
+                            <div class="w-10 h-10 flex-shrink-0">
+                                <div class="w-10 h-10 rounded-full bg-gray-300 flex items-center justify-center">
+                                    <i data-lucide="user" class="w-5 h-5 text-gray-600"></i>
+                                </div>
+                            </div>
+                            <div class="ml-4">
+                                <div class="text-sm font-medium text-gray-900">${contact.name || 'Unknown'}</div>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <div class="text-sm text-gray-900">${contact.phoneNumber}</div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <div class="text-sm text-gray-500">${contact.source || 'Unknown'}</div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        ${new Date(contact.createdAt).toLocaleDateString()}
+                    </td>
+                </tr>
+            `).join('');
+            
+            // Re-initialize Lucide icons for new content
+            lucide.createIcons();
+        }
+
+        async function loadRecentContacts() {
+            try {
+                const response = await fetch('/api/contacts');
+                if (response.ok) {
+                    const allContacts = await response.json();
+                    const recent = allContacts.slice(-5).reverse();
+                    displayRecentContacts(recent);
+                }
+            } catch (error) {
+                console.error('Failed to load recent contacts:', error);
+            }
+        }
+
+        function displayRecentContacts(recentContacts) {
+            const container = document.getElementById('recentContacts');
+            if (recentContacts.length === 0) {
+                container.innerHTML = '<div class="text-sm text-gray-500 text-center py-8">No contacts detected yet</div>';
+                return;
+            }
+
+            container.innerHTML = recentContacts.map(contact => `
+                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div class="flex items-center">
+                        <div class="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center mr-3">
+                            <i data-lucide="user" class="w-4 h-4 text-green-600"></i>
+                        </div>
+                        <div>
+                            <div class="text-sm font-medium text-gray-900">${contact.phoneNumber}</div>
+                            <div class="text-xs text-gray-500">From: ${contact.source || 'Unknown'}</div>
+                        </div>
+                    </div>
+                    <div class="text-xs text-gray-400">
+                        ${new Date(contact.createdAt).toLocaleDateString()}
+                    </div>
+                </div>
+            `).join('');
+            
+            lucide.createIcons();
+        }
+
+        async function loadMessages() {
+            try {
+                const response = await fetch('/api/messages?limit=50');
+                if (response.ok) {
+                    messages = await response.json();
+                    displayMessages(messages);
+                }
+            } catch (error) {
+                console.error('Failed to load messages:', error);
+            }
+        }
+
+        async function loadRecentMessages() {
+            try {
+                const response = await fetch('/api/messages?limit=5');
+                if (response.ok) {
+                    const recentMessages = await response.json();
+                    displayRecentMessages(recentMessages);
+                }
+            } catch (error) {
+                console.error('Failed to load recent messages:', error);
+            }
+        }
+
+        function displayRecentMessages(recentMessages) {
+            const container = document.getElementById('recentMessages');
+            if (recentMessages.length === 0) {
+                container.innerHTML = '<div class="text-sm text-gray-500 text-center py-8">No messages with phone numbers yet</div>';
+                return;
+            }
+
+            container.innerHTML = recentMessages.map(message => `
+                <div class="p-3 bg-gray-50 rounded-lg">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="text-sm font-medium text-gray-900">${message.sender}</div>
+                        <div class="text-xs text-gray-400">${new Date(message.createdAt).toLocaleDateString()}</div>
+                    </div>
+                    <div class="text-sm text-gray-600 mb-2">${message.content.substring(0, 100)}${message.content.length > 100 ? '...' : ''}</div>
+                    ${message.phoneNumbersDetected && message.phoneNumbersDetected.length > 0 ? 
+                        `<div class="flex flex-wrap gap-1">
+                            ${message.phoneNumbersDetected.map(phone => 
+                                `<span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">${phone}</span>`
+                            ).join('')}
+                        </div>` : ''
+                    }
+                </div>
+            `).join('');
+        }
+
+        function displayMessages(messagesToShow) {
+            const container = document.getElementById('messagesContainer');
+            if (messagesToShow.length === 0) {
+                container.innerHTML = '<div class="text-sm text-gray-500 text-center py-8">No messages found</div>';
+                return;
+            }
+
+            container.innerHTML = messagesToShow.map(message => `
+                <div class="border border-gray-200 rounded-lg p-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="text-sm font-medium text-gray-900">${message.sender}</div>
+                        <div class="text-xs text-gray-400">${new Date(message.createdAt).toLocaleString()}</div>
+                    </div>
+                    <div class="text-sm text-gray-600 mb-3">${message.content}</div>
+                    ${message.phoneNumbersDetected && message.phoneNumbersDetected.length > 0 ? 
+                        `<div class="flex flex-wrap gap-2">
+                            <span class="text-xs text-gray-500 mr-2">Detected numbers:</span>
+                            ${message.phoneNumbersDetected.map(phone => 
+                                `<span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">${phone}</span>`
+                            ).join('')}
+                        </div>` : ''
+                    }
+                </div>
+            `).join('');
+        }
+
+        // Export functions
+        async function exportContacts(format) {
+            try {
+                const response = await fetch(`/api/export/${format}`);
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = `contacts_${new Date().toISOString().split('T')[0]}.${format}`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                } else {
+                    alert('Export failed. Please try again.');
+                }
+            } catch (error) {
+                console.error('Export failed:', error);
+                alert('Export failed. Please try again.');
+            }
+        }
+
+        // Refresh data
+        function refreshData() {
+            loadInitialData();
+            if (currentTab === 'contacts') {
+                loadContacts();
+            } else if (currentTab === 'messages') {
+                loadMessages();
+            }
+        }
+
+        // Setup auto-refresh every 30 seconds
+        function setupAutoRefresh() {
+            setInterval(() => {
+                loadAnalytics();
+                loadRecentContacts();
+                loadRecentMessages();
+            }, 30000);
+        }
+
+        // Setup search functionality
+        function setupSearch() {
+            const searchInput = document.getElementById('searchContacts');
+            if (searchInput) {
+                searchInput.addEventListener('input', function() {
+                    const searchTerm = this.value.toLowerCase();
+                    const filteredContacts = contacts.filter(contact => 
+                        contact.phoneNumber.toLowerCase().includes(searchTerm) ||
+                        (contact.name && contact.name.toLowerCase().includes(searchTerm)) ||
+                        (contact.source && contact.source.toLowerCase().includes(searchTerm))
+                    );
+                    displayContacts(filteredContacts);
+                });
+            }
+        }
+    </script>
+</body>
+</html>
